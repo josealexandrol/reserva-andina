@@ -1,0 +1,56 @@
+name: CI - ReservaAndina
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  pruebas:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Construir las imágenes Docker
+        run: docker compose build
+
+      - name: Iniciar los microservicios
+        run: docker compose up -d
+
+      - name: Esperar a que las API respondan
+        run: |
+          for port in 3001 3002 3003 3004 3005; do
+            for intento in $(seq 1 30); do
+              if curl -fsS "http://localhost:$port/health" >/dev/null; then
+                break
+              fi
+              sleep 2
+            done
+            curl -fsS "http://localhost:$port/health"
+            echo
+          done
+
+      - name: Probar Anfitriones
+        run: docker compose exec -T anfitriones npm test
+
+      - name: Probar Experiencias
+        run: docker compose exec -T experiencias npm test
+
+      - name: Probar Disponibilidad
+        run: docker compose exec -T disponibilidad npm test
+
+      - name: Probar Notificaciones
+        run: docker compose exec -T notificaciones npm test
+
+      - name: Probar Reservas
+        run: docker compose exec -T reservas npm test
+
+      - name: Mostrar registros si algo falla
+        if: failure()
+        run: docker compose logs
+
+      - name: Detener los contenedores
+        if: always()
+        run: docker compose down -v
