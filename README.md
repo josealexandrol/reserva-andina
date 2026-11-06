@@ -9,8 +9,15 @@ Arquitectura basada en microservicios con Node.js, PostgreSQL, Docker, Docker Co
 
 ## Integrantes
 
-| N.º | Integrante | Rol | Microservicio a cargo |
-|---|---|---|---|
+| N.º | Integrante | Rol | Microservicio a cargo | Tarea adicional |
+|---|---|---|---|---|
+| 1 | JOSE ALEXANDRO LOPEZ MAMANI | Líder del repositorio | Anfitriones | Revisión y fusión de Pull Requests, README |
+| 2 | BRANDON CUNZA ROBLES | Colaborador y revisor | Experiencias | Docker Compose; revisión de los PR del líder |
+| 3 | ROBERTO ISRAEL MEZA ORORE | Desarrollador | Disponibilidad | — |
+| 4 | MARIANO JHOSHUA LAURA PAZ | Desarrollador | Reservas | Orquestación entre servicios |
+| 5 | OSCAR AILTHON ESPINOZA NIETO | Desarrollador | Notificaciones | Integración continua (GitHub Actions) |
+
+---|---|---|---|
 | 1 | JOSE ALEXANDRO LOPEZ MAMANI | Líder del repositorio | Por definir |
 | 2 | BRANDON CUNZA ROBLES | Desarrollador | Por definir |
 | 3 | ROBERTO ISRAEL MEZA ORORE | Desarrollador | Por definir |
@@ -154,27 +161,116 @@ reserva-andina/
 ## 6. Flujo de trabajo del equipo
 
 - La rama `main` está protegida: los cambios solo se incorporan mediante **Pull Request** con al menos **una aprobación**.
-- Cada integrante trabaja en su **fork** del repositorio central y propone sus cambios mediante Pull Request.
+- Cada integrante trabaja en su **fork** del repositorio central y propone sus cambios mediante Pull Request. El líder, como dueño del repositorio, trabaja en ramas propias y sus Pull Requests son aprobados por el colaborador.
 - El líder revisa, aprueba o solicita cambios antes de incorporar cada contribución.
 
 ---
 
 ## 7. Ejecución del proyecto
 
-> *Sección en desarrollo: se completará con los comandos de Docker Compose y las capturas de los servicios en funcionamiento.*
+**Requisitos:** Docker y Docker Compose.
+
+```bash
+git clone https://github.com/josealexandrol/reserva-andina.git
+cd reserva-andina
+docker compose up -d --build
+docker compose ps
+```
+
+Se levantan **10 contenedores**: los 5 microservicios y sus 5 bases de datos PostgreSQL. Cada base de datos se crea y se llena automáticamente con el `init.sql` de su servicio.
+
+| Microservicio | URL | Ejemplo |
+|---|---|---|
+| Anfitriones | http://localhost:3001 | `GET /anfitriones` |
+| Experiencias | http://localhost:3002 | `GET /experiencias` |
+| Disponibilidad | http://localhost:3003 | `GET /disponibilidad?experiencia_id=1` |
+| Reservas | http://localhost:3004 | `POST /reservas` |
+| Notificaciones | http://localhost:3005 | `GET /notificaciones` |
+
+**Ejemplo: crear una reserva**
+
+```bash
+curl -X POST http://localhost:3004/reservas \
+  -H "Content-Type: application/json" \
+  -d '{"experiencia_id":1,"turista_nombre":"Ana Torres","turista_email":"ana@correo.com","fecha":"2026-12-02","personas":2}'
+```
+
+Para detener el sistema: `docker compose down` (agregar `-v` para borrar también los datos).
+
+<img width="1917" height="422" alt="image" src="https://github.com/user-attachments/assets/2f38a3f2-e552-4fe1-a384-250701dc78c1" />
+
 
 ---
 
 ## 8. Pruebas implementadas
 
-> *Sección en desarrollo: se documentará cada prueba con la funcionalidad que verifica, el microservicio al que corresponde y el comportamiento esperado.*
+Se usan **Jest** y **Supertest**: **31 pruebas** en total. Las pruebas se ejecutan dentro de cada contenedor, contra su propia base de datos y comunicándose con los demás servicios:
+
+```bash
+docker compose exec anfitriones npm test
+docker compose exec experiencias npm test
+docker compose exec disponibilidad npm test
+docker compose exec reservas npm test
+docker compose exec notificaciones npm test
+```
 
 | Microservicio | Prueba | Funcionalidad que verifica | Comportamiento esperado |
 |---|---|---|---|
-| | | | |
+| Anfitriones | `GET /health` | El servicio está activo | 200 y `servicio: anfitriones` |
+| Anfitriones | `GET /anfitriones` | Consulta de todos los anfitriones | 200 y una lista con datos |
+| Anfitriones | `GET /anfitriones/1` | Consulta por id | 200 y `id: 1` |
+| Anfitriones | `GET /anfitriones/9999` | Anfitrión inexistente | 404 "Anfitrión no encontrado" |
+| Anfitriones | `POST /anfitriones sin teléfono` | Validación de campos obligatorios | 400 |
+| Anfitriones | `POST /anfitriones válido` | Registro de un anfitrión | 201 y el anfitrión creado |
+| Experiencias | `GET /health` | El servicio está activo | 200 y `servicio: experiencias` |
+| Experiencias | `GET /experiencias` | Consulta del catálogo | 200 y una lista con datos |
+| Experiencias | `GET /experiencias/9999` | Experiencia inexistente | 404 "Experiencia no encontrada" |
+| Experiencias | `POST con precio negativo` | Validación del precio | 400 |
+| Experiencias | `POST con anfitrión inexistente` | **Comunicación con Anfitriones** | 400 "El anfitrión indicado no existe" |
+| Experiencias | `POST válido` | Registro de una experiencia (valida el anfitrión) | 201 y la experiencia creada |
+| Disponibilidad | `GET /health` | El servicio está activo | 200 y `servicio: disponibilidad` |
+| Disponibilidad | `GET /disponibilidad con filtros` | Consulta por experiencia y fecha | 200 y una sola fila |
+| Disponibilidad | `POST /reservar y /liberar` | Descuento y devolución de cupos | Los cupos libres bajan y luego vuelven |
+| Disponibilidad | `POST /reservar con 999 personas` | **Prevención de sobrerreservas** | 409 "Sin cupos suficientes" |
+| Disponibilidad | `POST /reservar en fecha sin cupos` | Fecha sin disponibilidad registrada | 404 |
+| Disponibilidad | `POST /reservar incompleto` | Validación de datos | 400 |
+| Reservas | `GET /health` | El servicio está activo | 200 y `servicio: reservas` |
+| Reservas | `GET /reservas` | Consulta de todas las reservas | 200 y una lista con datos |
+| Reservas | `POST válido y PATCH /cancelar` | **Flujo completo entre servicios**: valida la experiencia, descuenta cupos, avisa al anfitrión y, al cancelar, libera los cupos | 201 y estado `pendiente`; luego `cancelada` y cupos restaurados |
+| Reservas | `POST con experiencia inexistente` | **Comunicación con Experiencias** | 400 "La experiencia indicada no existe" |
+| Reservas | `POST con 999 personas` | **Comunicación con Disponibilidad** | 409 |
+| Reservas | `POST incompleto` | Validación de datos | 400 |
+| Reservas | `PATCH /reservas/9999/cancelar` | Reserva inexistente | 404 |
+| Notificaciones | `GET /health` | El servicio está activo | 200 y `servicio: notificaciones` |
+| Notificaciones | `GET /notificaciones` | Historial de avisos | 200 y una lista con datos |
+| Notificaciones | `POST por WhatsApp` | Registro de un aviso | 201 y `canal: whatsapp` |
+| Notificaciones | `POST sin canal` | Canal por defecto | 201 y `canal: sms` |
+| Notificaciones | `POST sin destinatario` | Validación de campos obligatorios | 400 |
+| Notificaciones | `POST con canal "fax"` | Validación del canal | 400 |
+
+Cada integrante documentó la ejecución de las pruebas de su microservicio, con capturas:
+
+| Microservicio | Responsable | Documentación |
+|---|---|---|
+| Anfitriones | Jose Alexandro Lopez Mamani | [docs/pruebas-anfitriones.md](docs/pruebas-anfitriones.md) |
+| Experiencias | Brandon Cunza Robles | [docs/pruebas-experiencias.md](docs/pruebas-experiencias.md) |
+| Disponibilidad | Roberto Israel Meza Orore | [docs/pruebas-disponibilidad.md](docs/pruebas-disponibilidad.md) |
+| Reservas | Mariano Jhoshua Laura Paz | [docs/pruebas-reservas.md](docs/pruebas-reservas.md) |
+| Notificaciones | Oscar Ailthon Espinoza Nieto | [docs/pruebas-notificaciones.md](docs/pruebas-notificaciones.md) |
 
 ---
 
 ## 9. Integración continua
 
-> *Sección en desarrollo: se describirá la pipeline de GitHub Actions que ejecuta las pruebas y verifica la construcción de las imágenes Docker.*
+El flujo [`.github/workflows/ci.yml`](.github/workflows/ci.yml) se ejecuta automáticamente en cada **push** y **Pull Request** hacia `main`:
+
+1. **Descarga el código** del repositorio.
+2. **Construye las 5 imágenes Docker** (`docker compose build`), lo que verifica que cada Dockerfile funcione.
+3. **Levanta los 10 contenedores** (`docker compose up -d`).
+4. **Espera** a que las 5 API respondan en `/health`.
+5. **Ejecuta las pruebas** de cada microservicio; si una falla, el flujo se marca en rojo y se muestran los registros.
+6. **Detiene y elimina** los contenedores (`docker compose down -v`).
+
+Así, ningún cambio llega a `main` sin que el sistema completo se construya y pase sus pruebas.
+
+<img width="1379" height="868" alt="image" src="https://github.com/user-attachments/assets/607e464f-c8c0-4a09-9708-7b93d46bae81" />
